@@ -1,0 +1,82 @@
+const express = require("express");
+const http = require("http");
+const WebSocket = require("ws");
+
+const app = express();
+
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+const rooms = new Map();
+
+app.get("/", (req, res) => {
+  res.send("HelpNow Chat Server עובד! 🚀");
+});
+
+wss.on("connection", (socket) => {
+  console.log("משתמש התחבר לצ'אט");
+
+  socket.on("message", (rawMessage) => {
+    try {
+      const data = JSON.parse(rawMessage.toString());
+
+      // הצטרפות לחדר
+      if (data.type === "join") {
+        socket.roomId = String(data.roomId);
+
+        if (!rooms.has(socket.roomId)) {
+          rooms.set(socket.roomId, new Set());
+        }
+
+        rooms.get(socket.roomId).add(socket);
+
+        console.log(`משתמש הצטרף לחדר ${socket.roomId}`);
+        return;
+      }
+
+      // שליחת הודעה
+      if (data.type === "chat") {
+        const room = rooms.get(String(data.roomId));
+
+        if (!room) {
+          return;
+        }
+
+        const message = JSON.stringify({
+          type: "chat",
+          roomId: String(data.roomId),
+          text: data.text,
+          sender: data.sender || "other",
+          time: new Date().toISOString(),
+        });
+
+        room.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
+          }
+        });
+      }
+    } catch (error) {
+      console.error("שגיאה:", error.message);
+    }
+  });
+
+  socket.on("close", () => {
+    if (socket.roomId && rooms.has(socket.roomId)) {
+      rooms.get(socket.roomId).delete(socket);
+
+      if (rooms.get(socket.roomId).size === 0) {
+        rooms.delete(socket.roomId);
+      }
+    }
+
+    console.log("משתמש התנתק");
+  });
+});
+
+const PORT = 3001;
+
+server.listen(PORT, () => {
+  console.log(`🚀 שרת הצ'אט פועל על http://localhost:${PORT}`);
+  console.log(`💬 WebSocket פועל על ws://localhost:${PORT}`);
+});
